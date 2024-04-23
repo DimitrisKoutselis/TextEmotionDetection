@@ -49,9 +49,7 @@ def replace_contractions(text, contraction_dict):
 
 
 def remove_mentions(text):
-    # Define a regular expression pattern to match words starting with '@'
     mention_pattern = r'@\w+'
-    # Remove mentions from the text
     return re.sub(mention_pattern, '', text)
 
 
@@ -67,16 +65,14 @@ def autocorrect_text(text):
     corrected_text = []
     for word in words:
         corrected_word = spell.correction(word)
-        if corrected_word != word:
+        if corrected_word is not None:
             corrected_text.append(corrected_word)
         else:
-            pass
+            corrected_text.append(word)
 
-    corrected_sentence = " ".join(f"{corrected_text}")
+    corrected_sentence = " ".join(corrected_text)
 
     return corrected_sentence
-
-
 
 def remove_nulls(text):
     if len(text) > 0:
@@ -120,7 +116,7 @@ def remove_extra_spaces(text):
 def tokenize(text):
     return tokenizer.tokenize(text)
 
-
+'''
 path_to_csv = 'archive/tweet_emotions.csv'
 raw_data = pd.read_csv(path_to_csv, usecols=['sentiment', 'content'])
 raw_data.rename(columns={'sentiment': 'class'}, inplace=True)
@@ -129,31 +125,44 @@ raw_data['labels'] = raw_data['class'].map(class_labels)
 raw_data = data_remove(raw_data)
 
 raw_data['content'] = raw_data['content'].apply(replace_contractions, contraction_dict=ctd.contraction_dict)
+print('replace contradictions', raw_data['content'])
 raw_data['content'] = raw_data['content'].apply(remove_mentions)
+print('remove mentions', raw_data['content'])
 raw_data['content'] = raw_data['content'].apply(to_lower)
+print('to_lower', raw_data['content'])
 raw_data['content'] = raw_data['content'].apply(autocorrect_text)
+print('autocorrect_text', raw_data['content'])
 raw_data['content'] = raw_data['content'].apply(remove_nulls)
+print('remove_nulls',raw_data['content'])
 raw_data.dropna(subset=['content'], inplace=True)
 raw_data['content'] = raw_data['content'].apply(remove_urls)
+print('remove urls',raw_data['content'])
 raw_data['content'] = raw_data['content'].apply(remove_html_tags)
+print('remove html tags',raw_data['content'])
 raw_data['content'] = raw_data['content'].apply(remove_punctuation)
+print('remove punctuation',raw_data['content'])
 raw_data['content'] = raw_data['content'].apply(remove_digits)
+print('remove digits',raw_data['content'])
 
 stop_words = set(stopwords.words('english'))
 stop_words.add('subject')
 stop_words.add('http')
 
 raw_data['content'] = raw_data['content'].apply(remove_stopwords)
-raw_data['content'] = raw_data['content'].apply(stem_words)
+print('remove stopwords',raw_data['content'])
 raw_data['content'] = raw_data['content'].apply(lemmatize_words)
+print('lemmatize words', raw_data['content'])
 raw_data['content'] = raw_data['content'].apply(remove_extra_spaces)
+print('remove extra spaces',raw_data['content'])
 #raw_data['content'] = raw_data['content'].apply(tokenize)
 raw_data.to_csv('archive/cleaned_data.csv')
+'''
+
+raw_data = pd.read_csv('archive/cleaned_data.csv')
 content = raw_data['content'].values
 y = raw_data['labels'].values
 
 content_train, content_test, y_train, y_test = train_test_split(content, y, test_size=0.25, random_state=42)
-
 '''
 #Linear Regression Approach with tfidf
 X_train = vectorizer.fit_transform(content_train)
@@ -167,17 +176,39 @@ print(f"Accuracy: {score}")
 #Accuracy = 33%
 #Accuracy = 0.33860949709477056
 '''
-
-
-
+content_train = list(content_train)
+content_test = list(content_test)
+test = ""
 #DNN approach
-X_train_tokenized = [tokenizer.tokenize(sentence) for sentence in content_train]
-X_test_tokenized = [tokenizer.tokenize(sentence) for sentence in content_test]
+try:
+    X_train_tokenized = []
+    numOfDeleted = 0
+    for i in range(len(content_train)):
+        if isinstance(content_train[i], str):
+            tokens = tokenizer.tokenize(content_train[i])
+            X_train_tokenized.append(tokens)
+        else:
+            y_train = np.delete(y_train, i-numOfDeleted)
+            numOfDeleted += 1
+
+    X_test_tokenized = []
+    numOfDeleted = 0
+    for i in range(len(content_test)):
+        if isinstance(content_test[i], str):
+            tokens = tokenizer.tokenize(content_test[i])
+            X_test_tokenized.append(tokens)
+        else:
+            y_test = np.delete(y_test, i-numOfDeleted)
+            numOfDeleted += 1
+
+except Exception as e:
+    print(e)
 
 word2vec_model = Word2Vec(sentences=X_train_tokenized, vector_size=100, window=5, min_count=1, workers=4)
 
 X_train_word2vec = [[word2vec_model.wv[word] for word in sentence if word in word2vec_model.wv] for sentence in X_train_tokenized]
 X_test_word2vec = [[word2vec_model.wv[word] for word in sentence if word in word2vec_model.wv] for sentence in X_test_tokenized]
+
 
 max_seq_length = max(max(len(seq) for seq in X_train_word2vec), max(len(seq) for seq in X_test_word2vec))
 X_train_word2vec_padded = pad_sequences(X_train_word2vec, maxlen=max_seq_length, padding='post', dtype='float32')
@@ -185,14 +216,8 @@ X_test_word2vec_padded = pad_sequences(X_test_word2vec, maxlen=max_seq_length, p
 
 model = keras.Sequential([
     keras.layers.LSTM(512, return_sequences=True),
-    keras.layers.Dropout(0.2),
-    keras.layers.LSTM(256, return_sequences=True),
-    keras.layers.Dropout(0.2),
-    keras.layers.LSTM(128, return_sequences=True),
-    keras.layers.Dropout(0.2),
-    keras.layers.LSTM(64, return_sequences=True),
-    keras.layers.Dropout(0.2),
-    keras.layers.LSTM(32, return_sequences=False),
+    keras.layers.Dropout(0.5),
+    keras.layers.LSTM(256, return_sequences=False),
     keras.layers.Dense(13, activation='softmax')
 ])
 
@@ -203,8 +228,9 @@ if os.path.exists(weights_path) and 1<0:
     model.load_weights(weights_path)
 else:
     y_train = np.array(y_train, dtype=np.int32)
-    history = model.fit(X_train_word2vec_padded, y_train, batch_size=32, epochs=100)
+    history = model.fit(X_train_word2vec_padded, y_train, batch_size=600, epochs=50)
     model.save_weights(weights_path)
 
+y_test = np.array(y_test, dtype=np.int32)
 loss, accuracy = model.evaluate(X_test_word2vec_padded, y_test)
 print(f'Test Loss: {loss}, Test Accuracy: {accuracy}')
